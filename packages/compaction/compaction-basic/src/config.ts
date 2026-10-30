@@ -178,7 +178,19 @@ export function resolveCompactSpec(
       + "the adapter model's contextWindow above the effective request maxTokens",
     )
   }
-  const pressureBudgetTokens = messageBudgetTokens - policy.headroomTokens
+  // The headroom reserves room for the request envelope (system prompt, tool
+  // schemas). It must never consume more than half of what the completion
+  // reservation left behind: past that point the remainder cannot hold both the
+  // retained tail and the summary it gets compacted into, so `retainTokens >=
+  // thresholdTokens` below and every request to this target fails before
+  // compaction can start. Clamping keeps the fixed 65_536 default usable on
+  // small windows (32k/65k free-tier models) and is a no-op for every target
+  // whose configured headroom already fits.
+  const effectiveHeadroomTokens = Math.min(
+    policy.headroomTokens,
+    Math.floor(messageBudgetTokens / 2),
+  )
+  const pressureBudgetTokens = messageBudgetTokens - effectiveHeadroomTokens
   if (pressureBudgetTokens <= 0) {
     throw new TargetPressureConfigError(
       targetKey,
